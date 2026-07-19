@@ -1,4 +1,4 @@
-# moonleaf
+# Moonleaf :first_quarter_moon_with_face:
 
 **A wind tunnel for LLM inference infrastructure.**
 

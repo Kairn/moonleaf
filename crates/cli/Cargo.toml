@@ -1,0 +1,18 @@
+[package]
+name = "moonleaf"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "moonleaf"
+path = "src/main.rs"
+
+[dependencies]
+moonleaf-core = { workspace = true }
+moonleaf-sim = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
