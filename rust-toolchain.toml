@@ -1,2 +1,8 @@
 [toolchain]
 channel = "1.96.0"
+# Declared here rather than installed in CI so a fresh clone and a fresh runner
+# get the same toolchain: rustup installs these when it materializes the pinned
+# channel. Without them, `cargo fmt` and `cargo clippy` are missing on any
+# machine whose default profile is minimal — which is what CI hit.
+components = ["rustfmt", "clippy"]
+profile = "minimal"

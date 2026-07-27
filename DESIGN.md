@@ -127,4 +127,6 @@ Six written studies, each reproducible offline with a single command, each expla
 
 ## Engineering bar
 
-CI (fmt, clippy, tests) green on every commit; release binaries for Linux and macOS; README with the positioning table, metric definitions, architecture diagram, and a demo GIF.
+CI (fmt, clippy, tests) green on every commit; release binaries for Linux — the one supported platform; README with the positioning table, metric definitions, architecture diagram, and a demo GIF.
+
+Nothing in the design is Linux-specific and the code stays Unix-portable, so macOS should build and run; it is simply not built, tested, or claimed. Windows is out of scope.

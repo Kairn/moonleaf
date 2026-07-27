@@ -41,9 +41,8 @@ pub async fn execute(args: &Args) -> io::Result<()> {
 /// runnable under a process supervisor or in a container, and those send
 /// SIGTERM. Whichever arrives first wins; the other is left unhandled.
 ///
-/// Linux and macOS are the shipped targets. A Windows build would need the
-/// SIGTERM arm replaced with [`std::future::pending`], since the signal only
-/// exists on Unix.
+/// Unix-only, which covers every supported platform. A Windows build would
+/// need the SIGTERM arm replaced with [`std::future::pending`].
 async fn shutdown_signal() {
     let interrupt = async {
         signal::ctrl_c().await.expect("install the Ctrl-C handler");
