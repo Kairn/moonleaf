@@ -15,9 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `rustup show` installs the toolchain pinned in rust-toolchain.toml,
-      # components included. The explicit add is a no-op on a fresh runner and
-      # a repair on one that already has the channel without them.
       - name: Install Rust toolchain
         run: |
           rustup show
