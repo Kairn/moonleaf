@@ -2,7 +2,10 @@
 
 mod commands;
 
+use std::io;
+
 use clap::{Parser, Subcommand, ValueEnum};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
@@ -44,13 +47,22 @@ enum Commands {
     Validate(commands::validate::Args),
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let cli = Cli::parse();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
 
     match &cli.command {
         Commands::Run(args) => commands::run::execute(args),
-        Commands::Sim(args) => commands::sim::execute(args),
+        Commands::Sim(args) => commands::sim::execute(args).await?,
         Commands::Compare(args) => commands::compare::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
     }
+
+    Ok(())
 }

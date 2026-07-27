@@ -1,0 +1,3 @@
+# Names that read as prose in docs but look like unbackticked identifiers to
+# `clippy::doc_markdown`. `..` keeps clippy's own defaults.
+doc-valid-idents = ["OpenAI", "vLLM", ".."]
