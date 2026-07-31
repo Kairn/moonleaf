@@ -7,6 +7,7 @@
 //! go through [`Server`], and traffic crosses real TCP either way.
 
 mod error;
+pub mod injector;
 mod routes;
 pub mod server;
 
