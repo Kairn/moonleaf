@@ -6,7 +6,9 @@
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 
-use moonleaf_sim::injector::InjectorConfig;
+use moonleaf_core::protocol::{ChatCompletionChunk, FinishReason, Role, Usage};
+use moonleaf_core::sse::{Event, Parser};
+use moonleaf_sim::injector::{Distribution, InjectorConfig};
 use moonleaf_sim::{MODEL_ID, Server};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -21,13 +23,10 @@ struct TestServer {
 }
 
 impl TestServer {
-    async fn start() -> Self {
-        let server = Server::bind(
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            InjectorConfig::default(),
-        )
-        .await
-        .expect("bind loopback");
+    async fn start_with(config: InjectorConfig) -> Self {
+        let server = Server::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), config)
+            .await
+            .expect("bind loopback");
         let address = server.local_addr().expect("read back bound address");
 
         let (shutdown, signal) = oneshot::channel();
@@ -44,6 +43,10 @@ impl TestServer {
             shutdown,
             serving,
         }
+    }
+
+    async fn start() -> Self {
+        Self::start_with(InjectorConfig::default()).await
     }
 
     fn url(&self, path: &str) -> String {
@@ -76,6 +79,60 @@ fn valid_body() -> Value {
         "messages": [{"role": "user", "content": "hi"}],
         "stream": true,
     })
+}
+
+/// Millisecond-scale delays and a small output, so streaming tests measure
+/// correctness rather than spending wall time on realistic pacing.
+fn fast_config() -> InjectorConfig {
+    InjectorConfig {
+        ttft_ms: Distribution::Fixed(5.0),
+        inter_chunk_ms: Distribution::Fixed(1.0),
+        output_tokens: Distribution::Fixed(8.0),
+    }
+}
+
+/// Streams a completion and reassembles it through the core SSE parser — the
+/// same machinery the measurement client will point at real backends.
+///
+/// Returns the parsed chunks and whether the `[DONE]` sentinel arrived.
+async fn stream_completion(server: &TestServer, body: Value) -> (Vec<ChatCompletionChunk>, bool) {
+    let mut response = reqwest::Client::new()
+        .post(server.url("/v1/chat/completions"))
+        .json(&body)
+        .send()
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut parser = Parser::new();
+    let mut chunks = Vec::new();
+    let mut done = false;
+    while let Some(bytes) = response.chunk().await.expect("read the stream") {
+        parser.push(&bytes);
+        while let Some(event) = parser.next_event() {
+            match event {
+                Event::Data(payload) => chunks.push(
+                    serde_json::from_str::<ChatCompletionChunk>(&payload).expect("chunk is JSON"),
+                ),
+                Event::Done => done = true,
+            }
+        }
+    }
+
+    (chunks, done)
+}
+
+/// Streams a completion and returns the raw SSE body as text.
+async fn raw_completion(server: &TestServer, body: Value) -> String {
+    reqwest::Client::new()
+        .post(server.url("/v1/chat/completions"))
+        .json(&body)
+        .send()
+        .await
+        .expect("send request")
+        .text()
+        .await
+        .expect("read the stream")
 }
 
 #[tokio::test]
@@ -148,6 +205,93 @@ async fn valid_request_streams_a_completion() {
         "no chunks in: {text}"
     );
     assert!(text.ends_with("data: [DONE]\n\n"), "unterminated: {text}");
+
+    server.stop().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn stream_reassembles_through_the_core_parser() {
+    let server = TestServer::start_with(fast_config()).await;
+
+    let mut body = valid_body();
+    body["stream_options"] = json!({"include_usage": true});
+    let (chunks, done) = stream_completion(&server, body).await;
+
+    assert!(done, "stream must end with [DONE]");
+    // Role + 8 content + finish + usage.
+    assert_eq!(chunks.len(), 11);
+
+    assert_eq!(chunks[0].choices[0].delta.role, Some(Role::Assistant));
+    assert_eq!(chunks[0].content(), None);
+
+    let contents: Vec<&str> = chunks
+        .iter()
+        .filter_map(ChatCompletionChunk::content)
+        .collect();
+    assert_eq!(contents.len(), 8);
+    for content in &contents {
+        assert_eq!(content.len(), 4, "one 4-char token per chunk: {content:?}");
+        assert!(content.is_ascii());
+    }
+
+    let finish = &chunks[9];
+    assert_eq!(finish.choices[0].finish_reason, Some(FinishReason::Stop));
+
+    let usage = &chunks[10];
+    assert!(usage.choices.is_empty());
+    // "hi" is 2 chars -> 1 prompt token under the 4-chars/token rule.
+    assert_eq!(
+        usage.usage,
+        Some(Usage {
+            prompt_tokens: 1,
+            completion_tokens: 8,
+            total_tokens: 9,
+        })
+    );
+
+    server.stop().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn same_seed_streams_identical_bytes() {
+    let server = TestServer::start_with(fast_config()).await;
+
+    let mut body = valid_body();
+    body["seed"] = json!(7);
+
+    let first = raw_completion(&server, body.clone()).await;
+    let second = raw_completion(&server, body.clone()).await;
+    assert_eq!(first, second, "same seed must replay the same stream");
+
+    body["seed"] = json!(8);
+    let other = raw_completion(&server, body).await;
+    assert_ne!(first, other, "a different seed must at least change the id");
+
+    server.stop().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn ignore_eos_streams_exactly_max_tokens() {
+    // The sampled length (3) must be discarded in favor of the budget (6).
+    let config = InjectorConfig {
+        output_tokens: Distribution::Fixed(3.0),
+        ..fast_config()
+    };
+    let server = TestServer::start_with(config).await;
+
+    let mut body = valid_body();
+    body["max_tokens"] = json!(6);
+    body["ignore_eos"] = json!(true);
+    let (chunks, done) = stream_completion(&server, body).await;
+
+    assert!(done);
+    let contents = chunks
+        .iter()
+        .filter_map(ChatCompletionChunk::content)
+        .count();
+    assert_eq!(contents, 6);
+    let finish = chunks.last().expect("finish chunk");
+    assert_eq!(finish.choices[0].finish_reason, Some(FinishReason::Length));
 
     server.stop().await.expect("clean shutdown");
 }
