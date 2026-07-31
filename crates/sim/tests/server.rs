@@ -6,6 +6,7 @@
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 
+use moonleaf_sim::injector::InjectorConfig;
 use moonleaf_sim::{MODEL_ID, Server};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -21,9 +22,12 @@ struct TestServer {
 
 impl TestServer {
     async fn start() -> Self {
-        let server = Server::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-            .await
-            .expect("bind loopback");
+        let server = Server::bind(
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            InjectorConfig::default(),
+        )
+        .await
+        .expect("bind loopback");
         let address = server.local_addr().expect("read back bound address");
 
         let (shutdown, signal) = oneshot::channel();

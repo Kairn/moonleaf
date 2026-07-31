@@ -53,6 +53,30 @@ impl Distribution {
     }
 }
 
+/// Everything the injector engine samples, one distribution per parameter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InjectorConfig {
+    /// Delay before the first content chunk, in milliseconds.
+    pub ttft_ms: Distribution,
+    /// Delay between consecutive content chunks, in milliseconds.
+    pub inter_chunk_ms: Distribution,
+    /// Completion length in tokens, before any `max_tokens` clamp.
+    pub output_tokens: Distribution,
+}
+
+/// A believable first `curl`: 200 ms to first token, 25 ms between tokens
+/// (40 tokens/s), 128-token completions. All `Fixed`, so an unconfigured
+/// server is deterministic even without a seed.
+impl Default for InjectorConfig {
+    fn default() -> Self {
+        Self {
+            ttft_ms: Distribution::Fixed(200.0),
+            inter_chunk_ms: Distribution::Fixed(25.0),
+            output_tokens: Distribution::Fixed(128.0),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Exact float equality is the point under test: Fixed must echo its value

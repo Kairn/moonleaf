@@ -3,6 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use clap::Parser;
 use moonleaf_sim::Server;
+use moonleaf_sim::injector::InjectorConfig;
 use tokio::signal;
 use tokio::signal::unix::SignalKind;
 
@@ -24,7 +25,12 @@ pub struct Args {
 /// Returns the underlying [`io::Error`] if the port cannot be bound or the
 /// accept loop fails.
 pub async fn execute(args: &Args) -> io::Result<()> {
-    let server = Server::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, args.port))).await?;
+    // Default config until the injector flags land with the engine selection.
+    let server = Server::bind(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, args.port)),
+        InjectorConfig::default(),
+    )
+    .await?;
 
     tracing::info!(
         address = %server.local_addr()?,

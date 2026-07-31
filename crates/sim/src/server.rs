@@ -12,15 +12,17 @@ use axum::Router;
 use axum::routing::{get, post};
 use tokio::net::TcpListener;
 
+use crate::injector::InjectorConfig;
 use crate::routes;
 
 /// A bound, not-yet-serving simulator.
 pub struct Server {
     listener: TcpListener,
+    config: InjectorConfig,
 }
 
 impl Server {
-    /// Binds the listening socket.
+    /// Binds the listening socket and fixes the engine configuration.
     ///
     /// Pass port 0 to let the OS assign one and read it back with
     /// [`Server::local_addr`].
@@ -29,9 +31,10 @@ impl Server {
     ///
     /// Returns the underlying [`io::Error`] if the address cannot be bound —
     /// typically the port is already in use or not permitted.
-    pub async fn bind(address: SocketAddr) -> io::Result<Self> {
+    pub async fn bind(address: SocketAddr, config: InjectorConfig) -> io::Result<Self> {
         Ok(Self {
             listener: TcpListener::bind(address).await?,
+            config,
         })
     }
 
@@ -58,16 +61,20 @@ impl Server {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        axum::serve(self.listener, router())
+        axum::serve(self.listener, router(self.config))
             .with_graceful_shutdown(shutdown)
             .await
     }
 }
 
 /// Every route the simulator answers.
-fn router() -> Router {
+///
+/// The injector config is the router's state: handlers that sample take it
+/// out with axum's `State` extractor, the rest never see it.
+fn router(config: InjectorConfig) -> Router {
     Router::new()
         .route("/healthz", get(routes::health::healthz))
         .route("/v1/models", get(routes::models::list_models))
         .route("/v1/chat/completions", post(routes::chat::chat_completions))
+        .with_state(config)
 }
