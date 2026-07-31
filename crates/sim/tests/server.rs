@@ -119,13 +119,35 @@ async fn models_advertises_the_served_id() {
 }
 
 #[tokio::test]
-async fn valid_request_reaches_the_unimplemented_stream() {
+async fn valid_request_streams_a_completion() {
     let server = TestServer::start().await;
 
-    let (status, body) = post_completion(&server, valid_body()).await;
+    // Two tokens keep the default 200 ms TTFT + 25 ms gap run short; the
+    // full streaming behavior gets its own suite against fast configs.
+    let mut body = valid_body();
+    body["max_tokens"] = json!(2);
+    let response = reqwest::Client::new()
+        .post(server.url("/v1/chat/completions"))
+        .json(&body)
+        .send()
+        .await
+        .expect("send request");
 
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(body["error"]["type"], "server_error");
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers()["content-type"]
+        .to_str()
+        .expect("readable content-type");
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "not SSE: {content_type}"
+    );
+
+    let text = response.text().await.expect("read the whole stream");
+    assert!(
+        text.contains("chat.completion.chunk"),
+        "no chunks in: {text}"
+    );
+    assert!(text.ends_with("data: [DONE]\n\n"), "unterminated: {text}");
 
     server.stop().await.expect("clean shutdown");
 }

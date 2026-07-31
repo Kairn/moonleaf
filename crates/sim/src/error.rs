@@ -68,19 +68,6 @@ impl ApiError {
             },
         }
     }
-
-    /// A route that exists but has nothing behind it yet: HTTP 501.
-    pub fn not_implemented(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_IMPLEMENTED,
-            detail: ErrorDetail {
-                message: message.into(),
-                error_type: "server_error",
-                param: None,
-                code: None,
-            },
-        }
-    }
 }
 
 impl IntoResponse for ApiError {

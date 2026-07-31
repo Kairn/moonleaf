@@ -10,6 +10,7 @@ moonleaf-core = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

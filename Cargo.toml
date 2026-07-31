@@ -12,6 +12,7 @@ moonleaf-core = { path = "crates/core" }
 moonleaf-sim = { path = "crates/sim" }
 
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "json"] }
 serde = { version = "1", features = ["derive"] }

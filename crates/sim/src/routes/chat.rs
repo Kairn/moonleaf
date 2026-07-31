@@ -1,17 +1,29 @@
 //! `POST /v1/chat/completions` — the streaming endpoint.
 //!
-//! Streaming itself is not wired up yet; what exists here is the gate every
-//! request has to pass first.
+//! The handler is thin on purpose: validate, sample a [`StreamPlan`], then
+//! replay it — sleep each planned delay, emit each planned chunk — and close
+//! with the `[DONE]` sentinel.
+
+use std::convert::Infallible;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
+use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
+use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use moonleaf_core::protocol::ChatCompletionRequest;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use tokio_stream::StreamExt as _;
 
 use crate::error::ApiError;
+use crate::injector::InjectorConfig;
 use crate::serves_model;
+use crate::stream::StreamPlan;
 
 pub(crate) async fn chat_completions(
+    State(config): State<InjectorConfig>,
     payload: Result<Json<ChatCompletionRequest>, JsonRejection>,
 ) -> Response {
     // Taking the rejection by value rather than letting axum handle it is what
@@ -27,7 +39,41 @@ pub(crate) async fn chat_completions(
         return error.into_response();
     }
 
-    ApiError::not_implemented("streaming completions are not implemented yet").into_response()
+    // A request-supplied seed pins this response completely — timings, length,
+    // id — the way a seed pins sampling on a real backend. Server-level
+    // seeding arrives with the injector flags.
+    let mut rng = match request.seed {
+        Some(seed) => StdRng::seed_from_u64(seed),
+        None => StdRng::from_os_rng(),
+    };
+    let created = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is set after the Unix epoch")
+        .as_secs();
+    let plan = StreamPlan::sample(&request, config, created, &mut rng);
+
+    let events = plan
+        .chunks
+        .into_iter()
+        .map(|planned| {
+            let event = Event::default()
+                .json_data(&planned.chunk)
+                .expect("chunk serializes to JSON");
+            (planned.delay, event)
+        })
+        .chain(std::iter::once((
+            Duration::ZERO,
+            Event::default().data("[DONE]"),
+        )));
+
+    let stream = tokio_stream::iter(events).then(|(delay, event)| async move {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        Ok::<_, Infallible>(event)
+    });
+
+    Sse::new(stream).into_response()
 }
 
 /// Checks a request against everything the simulator requires before it will
