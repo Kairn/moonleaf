@@ -10,6 +10,7 @@ mod error;
 pub mod injector;
 mod routes;
 pub mod server;
+pub mod stream;
 pub mod tokenizer;
 
 pub use server::Server;
